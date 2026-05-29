@@ -1,21 +1,15 @@
-import discord
-from discord.ext import commands
-import gspread
-from google.oauth2.service_account import Credentials
 import os
 import json
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 import re
+import requests
 
-# Setup
-TOKEN = os.environ['DISCORD_TOKEN']
+# Setup credentials
+DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
 SHEET_ID = os.environ['SHEET_ID']
 GOOGLE_CREDS = json.loads(os.environ['GOOGLE_CREDENTIALS'])
-
-# Discord bot setup
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Google Sheets setup
 scope = ['https://www.googleapis.com/auth/spreadsheets', 
@@ -41,37 +35,70 @@ def parse_signup_message(content):
     
     return email, url
 
-@bot.event
-async def on_ready():
-    print(f'✓ Bot logged in as {bot.user}')
-    print(f'✓ Listening for signups...')
-
-@bot.event
-async def on_message(message):
-    # Don't log bot's own messages
-    if message.author == bot.user:
-        return
+def get_channel_messages(channel_id):
+    """Fetch recent messages from Discord channel"""
+    headers = {
+        "Authorization": f"Bot {DISCORD_TOKEN}"
+    }
     
-    # CHANGE THIS to your channel ID
-    CHANNEL_ID = 1509236987247333446
-    if message.channel.id != CHANNEL_ID:
-        return
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=10"
     
     try:
-        # Parse email and URL from message
-        email, url = parse_signup_message(message.content)
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            messages = response.json()
+            return messages
+        else:
+            print(f"Error fetching messages: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"Error: {e}")
+        return []
+
+def process_messages():
+    """Process messages and log to Google Sheets"""
+    CHANNEL_ID = 1234567890  # CHANGE THIS to your channel ID
+    
+    messages = get_channel_messages(CHANNEL_ID)
+    
+    for message in messages:
+        content = message.get('content', '')
+        author = message.get('author', {}).get('username', 'Unknown')
         
-        # Only log if we found both email and URL (signup message)
+        # Only process messages with email and URL
+        email, url = parse_signup_message(content)
+        
         if email and url:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            sheet.append_row([timestamp, email, url])
-            print(f'✓ Logged: {email} | {url}')
-        
-    except Exception as e:
-        print(f'Error logging message: {e}')
-    
-    await bot.process_commands(message)
+            
+            # Check if already logged
+            try:
+                all_values = sheet.get_all_values()
+                exists = False
+                for row in all_values:
+                    if len(row) >= 2 and row[1] == email and row[2] == url:
+                        exists = True
+                        break
+                
+                if not exists:
+                    sheet.append_row([timestamp, email, url])
+                    print(f'✓ Logged: {email} | {url}')
+            except Exception as e:
+                print(f'Error logging: {e}')
 
-# Run bot
-bot.run(TOKEN)
-      
+if __name__ == "__main__":
+    print("✓ Bot starting...")
+    print(f"✓ Monitoring channel for signups...")
+    
+    # Keep checking for messages every 30 seconds
+    import time
+    while True:
+        try:
+            process_messages()
+            time.sleep(30)  # Check every 30 seconds
+        except KeyboardInterrupt:
+            print("\n✓ Bot stopped")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(30)
