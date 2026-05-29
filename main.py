@@ -53,7 +53,7 @@ async def on_message(message):
         return
     
     # CHANGE THIS to your channel ID
-    CHANNEL_ID = 1234567890
+    CHANNEL_ID = 1509236987247333446
     if message.channel.id != CHANNEL_ID:
         return
     
